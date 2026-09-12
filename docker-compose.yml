@@ -1,0 +1,110 @@
+# ==============================================================================
+# D-Vault Local Development Environment (Docker Compose)
+#
+# NOTE ON SMART CONTRACTS:
+# The `contracts/` directory (Hardhat blockchain development environment) is not
+# containerized yet because the Blockchain Engineer's code has not been integrated
+# into this repository. A commented-out placeholder service for a local Hardhat node
+# (port 8545) is provided at the bottom of this file. Uncomment and activate it
+# once the `contracts/` directory is merged.
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. PostgreSQL Database Service
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: d-vault-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: sih_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sih_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - d-vault-network
+
+  # ----------------------------------------------------------------------------
+  # 2. Backend API Service (Express + Prisma + TypeScript)
+  # ----------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: d-vault-backend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      DATABASE_URL: postgresql://postgres:password@postgres:5432/sih_db?schema=public
+      CORS_ORIGIN: http://localhost:3000
+    networks:
+      - d-vault-network
+
+  # ----------------------------------------------------------------------------
+  # 3. Frontend Web3 Service (Next.js + RainbowKit / Wagmi)
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend-web3
+      dockerfile: Dockerfile
+    container_name: d-vault-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    env_file:
+      - path: ./frontend-web3/.env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_API_URL: http://localhost:5000
+    networks:
+      - d-vault-network
+
+  # ----------------------------------------------------------------------------
+  # Smart Contracts (Local Hardhat Node) - Placeholder
+  # Uncomment this service once the `contracts/` folder has been added.
+  # ----------------------------------------------------------------------------
+  # contracts:
+  #   build:
+  #     context: ./contracts
+  #     dockerfile: Dockerfile
+  #   container_name: d-vault-contracts
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8545:8545"
+  #   environment:
+  #     - HARDHAT_NETWORK=localhost
+  #   networks:
+  #     - d-vault-network
+
+volumes:
+  postgres_data:
+    name: d-vault-postgres-data
+
+networks:
+  d-vault-network:
+    name: d-vault-network
+    driver: bridge

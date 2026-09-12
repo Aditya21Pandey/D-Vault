@@ -14,7 +14,7 @@ export const prepareMetadata = async (req: Request, res: Response, next: NextFun
     const { name, description, assetType, ownerDID } = req.body;
 
     // Handle optional file upload (multer populates req.file)
-    const file = (req as any).file as Express.Multer.File | undefined;
+    const file = req.file;
 
     const result = await assetService.prepareMetadata(
       { name, description, assetType, ownerDID },

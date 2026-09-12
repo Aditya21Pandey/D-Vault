@@ -1,5 +1,4 @@
 import { RoleName } from '@prisma/client';
-import { Request } from 'express';
 
 // =============================================
 // Authenticated user attached to req.user
@@ -15,6 +14,7 @@ export interface AuthenticatedUser {
 // Augment Express Request
 // =============================================
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       user?: AuthenticatedUser;

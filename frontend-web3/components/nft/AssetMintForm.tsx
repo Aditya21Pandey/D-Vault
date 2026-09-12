@@ -175,7 +175,7 @@ export function AssetMintForm({ actorAddress }: AssetMintFormProps) {
               <p className="font-semibold text-emerald-400">✓ Asset minted successfully</p>
               <p className="mt-1 text-slate-400">
                 Token <span className="font-mono text-emerald-300">#{mintedAsset.tokenId}</span> was
-                assigned to the recipient's DID.
+                assigned to the recipient&apos;s DID.
               </p>
             </div>
             <button

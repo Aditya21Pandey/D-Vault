@@ -1,5 +1,5 @@
 import { env } from '../config/env';
-import { logger, logBlockchainError } from '../utils/logger';
+import { logBlockchainError } from '../utils/logger';
 import { getDIDRegistry, getRBACContract, getNFTAssetContract } from '../blockchain/contracts';
 import { getTransactionStatus } from '../blockchain/provider';
 import { ROLE_BYTES32 } from '../config/contracts';

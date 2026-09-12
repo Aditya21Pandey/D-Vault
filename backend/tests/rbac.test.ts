@@ -9,6 +9,7 @@ jest.mock('../src/db/prisma', () => ({
     user: { findUnique: jest.fn() },
     role: { findUnique: jest.fn() },
     userRole: { upsert: jest.fn(), deleteMany: jest.fn() },
+    auditLog: { findMany: jest.fn().mockResolvedValue([]) },
   },
 }));
 
@@ -113,5 +114,22 @@ describe('RBAC Middleware', () => {
 
     expect(res.status).toBe(401);
     expect(res.body.error.message).toContain('expired');
+  });
+
+  it('should return 401 for a tampered JWT signature', async () => {
+    const validToken = makeToken('ADMIN');
+    // Tamper with the payload part of the JWT
+    const parts = validToken.split('.');
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+    payload.role = 'SUPERADMIN'; // Try to escalate privileges
+    parts[1] = Buffer.from(JSON.stringify(payload)).toString('base64').replace(/=/g, '');
+    const tamperedToken = parts.join('.');
+
+    const res = await request(app)
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${tamperedToken}`);
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.message).toContain('Invalid token');
   });
 });

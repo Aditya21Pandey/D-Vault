@@ -1,0 +1,83 @@
+title = "D-Vault Gitleaks Secret Scanner Configuration"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "jwt-secret"
+description = "Potential JWT Secret or signing key"
+regex = '''(?i)(jwt_secret|jwt_key|jwt_secret_key)\s*[:=]\s*["']?([A-Za-z0-9_\-\.]{12,})["']?'''
+secretGroup = 2
+keywords = [
+    "jwt_secret",
+    "jwt_key",
+    "jwt_secret_key"
+]
+
+[[rules]]
+id = "pinata-jwt"
+description = "Pinata IPFS Gateway JWT or API token"
+regex = '''(?i)(pinata_jwt|pinata_api_key|pinata_secret_api_key)\s*[:=]\s*["']?([A-Za-z0-9_\-\.]{16,})["']?'''
+secretGroup = 2
+keywords = [
+    "pinata_jwt",
+    "pinata_api_key",
+    "pinata_secret_api_key"
+]
+
+[[rules]]
+id = "eth-or-generic-private-key"
+description = "Blockchain raw private key or PEM private key"
+regex = '''(?i)(-----BEGIN[ A-Z0-9_-]*PRIVATE KEY-----|(?i)(?:private_key|priv_key|privatekey)\s*[:=]\s*["']?(0x[a-fA-F0-9]{64}|[a-fA-F0-9]{64})["']?)'''
+keywords = [
+    "PRIVATE KEY",
+    "private_key",
+    "priv_key"
+]
+
+[[rules]]
+id = "generic-api-token"
+description = "Generic API token or high-entropy credential"
+regex = '''(?i)(api_key|api_secret|access_token|auth_token|secret_key)\s*[:=]\s*["']?([A-Za-z0-9_\-\.]{20,})["']?'''
+secretGroup = 2
+keywords = [
+    "api_key",
+    "api_secret",
+    "access_token",
+    "auth_token",
+    "secret_key"
+]
+
+[[rules]]
+id = "database-embedded-credentials"
+description = "Database connection string containing embedded credentials"
+regex = '''(?i)(postgres|postgresql|mysql|mongodb(?:\+srv)?):\/\/[a-zA-Z0-9_\-\.]+:(.+?)@[a-zA-Z0-9_\.\-]+'''
+secretGroup = 2
+keywords = [
+    "postgres://",
+    "postgresql://",
+    "mysql://",
+    "mongodb://"
+]
+
+[allowlist]
+description = "Global allowlist for example environment templates, test keys, and documentation"
+paths = [
+    '''(^|/)\.env\.example$''',
+    '''security/scripts/gitleaks-config\.toml$'''
+]
+stopwords = [
+    "your-super-secret-jwt-key-change-in-production",
+    "your-pinata-jwt-token",
+    "YOUR_INFURA_KEY",
+    "demo-project-id",
+    "password",
+    "0x0000000000000000000000000000000000000000"
+]
+regexes = [
+    '''postgresql:\/\/postgres:password@localhost:5432\/sih_db\?schema=public''',
+    '''your-super-secret-jwt-key-change-in-production''',
+    '''your-pinata-jwt-token''',
+    '''YOUR_INFURA_KEY''',
+    '''demo-project-id'''
+]

@@ -1,7 +1,6 @@
 import { ethers } from 'ethers';
 import { getProvider } from './provider';
 import { CONTRACT_CONFIG } from '../config/contracts';
-import { env } from '../config/env';
 
 // Import mock ABIs (swap with real ones from blockchain team)
 import DIDRegistryABI from '../../abis/DIDRegistry.json';

@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../db/prisma';
-import { Errors } from '../middleware/error.middleware';
 
 // =============================================
 // GET /api/audit — AUDITOR or ADMIN
@@ -38,9 +37,14 @@ export const getAuditLog = async (req: Request, res: Response, next: NextFunctio
       prisma.auditEvent.count({ where }),
     ]);
 
+    const serializedEvents = events.map((event) => ({
+      ...event,
+      blockNumber: event.blockNumber != null ? event.blockNumber.toString() : null,
+    }));
+
     res.status(200).json({
       success: true,
-      data: events,
+      data: serializedEvents,
       meta: { page, limit, total },
     });
   } catch (err) {

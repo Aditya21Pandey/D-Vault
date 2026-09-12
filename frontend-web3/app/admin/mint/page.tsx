@@ -45,7 +45,7 @@ export default function AdminMintPage() {
           <div>
             <h1 className="text-2xl font-bold text-white">Mint NFT Asset</h1>
             <p className="text-sm text-slate-400">
-              Issue ERC-721 tokens directly linked to a recipient's DID
+              Issue ERC-721 tokens directly linked to a recipient&apos;s DID
             </p>
           </div>
         </div>
@@ -65,7 +65,7 @@ export default function AdminMintPage() {
                 <li className="flex gap-2"><span className="text-cyan-400">2.</span> (Production) Metadata uploaded to IPFS</li>
                 <li className="flex gap-2"><span className="text-cyan-400">3.</span> Wallet signs mint transaction</li>
                 <li className="flex gap-2"><span className="text-cyan-400">4.</span> Smart contract mints ERC-721 token to recipient address</li>
-                <li className="flex gap-2"><span className="text-cyan-400">5.</span> Token linked to recipient's DID in registry</li>
+                <li className="flex gap-2"><span className="text-cyan-400">5.</span> Token linked to recipient&apos;s DID in registry</li>
                 <li className="flex gap-2"><span className="text-cyan-400">6.</span> Audit event recorded on-chain</li>
               </ol>
             </div>

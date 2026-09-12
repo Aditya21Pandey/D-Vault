@@ -1,0 +1,56 @@
+# ==============================================================================
+# Global Git Ignore - D-Vault Monorepo
+# ==============================================================================
+
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Environment configurations & secrets
+.env
+.env.local
+.env.*.local
+*.env
+*.pem
+*.key
+*.pfx
+*.pkcs12
+*.crt
+
+# Never ignore environment template examples
+!.env.example
+!**/.env.example
+
+# Build artifacts & compilation caches
+dist/
+build/
+out/
+.next/
+*.tsbuildinfo
+next-env.d.ts
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing & Coverage
+coverage/
+.nyc_output/
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE & Editor caches
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Database & Migration artifacts
+backend/prisma/migrations/.gitkeep
