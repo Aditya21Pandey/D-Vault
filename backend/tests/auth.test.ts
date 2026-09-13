@@ -151,6 +151,21 @@ describe('Auth API', () => {
 
       expect(res.status).toBe(401);
     });
+
+    it('should reject a nonce that has already been used (replay attack)', async () => {
+      // Prisma's where clause checks `used: false`. If it was used, it returns null.
+      mockPrisma.nonce.findFirst.mockResolvedValue(null);
+
+      const res = await request(app)
+        .post('/api/auth/verify')
+        .send({
+          walletAddress: wallet.address,
+          signature: '0x' + '00'.repeat(65),
+        });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error.message).toContain('Invalid or expired login challenge');
+    });
   });
 
   // =============================================

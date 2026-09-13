@@ -1,0 +1,47 @@
+name: Dependency Vulnerability Audit
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Weekly scan every Sunday at 00:00 UTC
+  pull_request:
+    paths:
+      - '**/package.json'
+      - '**/package-lock.json'
+      - '.github/workflows/dependency-audit.yml'
+  workflow_dispatch:
+
+jobs:
+  dependency-audit:
+    name: Audit Dependencies (High / Critical)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Initialize Job Summary
+        run: |
+          echo "## 🛡️ Dependency Vulnerability Audit Report" >> $GITHUB_STEP_SUMMARY
+          echo "Triggered on commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+      - name: Audit Backend Dependencies
+        continue-on-error: true
+        run: |
+          echo "### 📦 Backend (\`backend/\`)" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          (cd backend && npm audit --audit-level=high) 2>&1 | tee backend_audit.log >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Audit Frontend Dependencies
+        continue-on-error: true
+        run: |
+          echo "### 📦 Frontend Web3 (\`frontend-web3/\`)" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          (cd frontend-web3 && npm audit --audit-level=high) 2>&1 | tee frontend_audit.log >> $GITHUB_STEP_SUMMARY || true
+          echo '```' >> $GITHUB_STEP_SUMMARY

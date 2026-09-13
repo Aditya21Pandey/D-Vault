@@ -8,6 +8,7 @@ import { AuthenticatedUser, AuthToken, NonceResponse } from '../types';
 import { RoleName } from '@prisma/client';
 
 // Lazy getter so jest.mock('../db/prisma') works in tests
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const db = () => require('../db/prisma').prisma;
 
 const NONCE_TTL_MS = env.NONCE_TTL_SECONDS * 1000;

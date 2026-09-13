@@ -1,0 +1,76 @@
+# ==============================================================================
+# Smart Contracts CI/CD & Security Static Analysis Pipeline
+#
+# NOTE: This workflow is pre-built and will activate automatically once the
+# Blockchain Engineer commits and pushes the contracts/ directory containing a
+# valid hardhat.config.js / hardhat.config.ts and package.json.
+# It does not execute until contracts/** paths are modified in a push or PR.
+# ==============================================================================
+
+name: Smart Contracts CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/contracts-ci.yml'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/contracts-ci.yml'
+
+jobs:
+  contracts-ci:
+    name: Compile, Test, and Slither Security Scan
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: contracts
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Python for Slither Analyzer
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install contract dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Compile Solidity contracts
+        run: npx hardhat compile
+
+      - name: Run unit tests
+        run: npx hardhat test
+
+      - name: Install Slither Analyzer
+        run: pip install slither-analyzer solc-select
+
+      - name: Run Slither Security Static Analysis
+        # Initially allow continuation on error so early development is not blocked,
+        # but surface full findings directly in the GitHub Actions Job Summary.
+        continue-on-error: true
+        run: |
+          echo "### 🛡️ Slither Static Analysis Report" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          slither . --exclude-dependencies --checklist >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
