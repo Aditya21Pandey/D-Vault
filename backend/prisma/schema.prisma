@@ -33,9 +33,12 @@ enum RoleName {
 // =============================================
 model User {
   id            String     @id @default(uuid())
-  walletAddress String     @unique @map("wallet_address")
+  walletAddress String?    @unique @map("wallet_address")  // null for Google-only users
   did           String?    @unique
   displayName   String?    @map("display_name")
+  email         String?    @unique                         // from Google OAuth
+  googleId      String?    @unique @map("google_id")       // Google sub claim
+  authProvider  String     @default("wallet") @map("auth_provider") // 'wallet' | 'google' | 'both'
   createdAt     DateTime   @default(now()) @map("created_at")
   updatedAt     DateTime   @updatedAt @map("updated_at")
 

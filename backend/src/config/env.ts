@@ -38,6 +38,15 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.string().default('900000').transform(Number),
   RATE_LIMIT_MAX: z.string().default('100').transform(Number),
   AUTH_RATE_LIMIT_MAX: z.string().default('10').transform(Number),
+
+  // Google OAuth
+  GOOGLE_CLIENT_ID: z.string().default(''),
+  GOOGLE_CLIENT_SECRET: z.string().default(''),
+  FRONTEND_URL: z.string().default('http://localhost:3000'),
+
+  // Email-based role whitelists (comma-separated)
+  ADMIN_EMAILS: z.string().default(''),
+  MANAGER_EMAILS: z.string().default(''),
 });
 
 const _parsed = envSchema.safeParse(process.env);

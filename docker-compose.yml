@@ -61,11 +61,11 @@ services:
       - d-vault-network
 
   # ----------------------------------------------------------------------------
-  # 3. Frontend Web3 Service (Next.js + RainbowKit / Wagmi)
+  # 3. Frontend Service (Next.js 16 + Tailwind)
   # ----------------------------------------------------------------------------
   frontend:
     build:
-      context: ./frontend-web3
+      context: ./frontend
       dockerfile: Dockerfile
     container_name: d-vault-frontend
     restart: unless-stopped
@@ -74,7 +74,7 @@ services:
     depends_on:
       - backend
     env_file:
-      - path: ./frontend-web3/.env
+      - path: ./frontend/.env.local
         required: false
     environment:
       NODE_ENV: production
@@ -84,21 +84,20 @@ services:
       - d-vault-network
 
   # ----------------------------------------------------------------------------
-  # Smart Contracts (Local Hardhat Node) - Placeholder
-  # Uncomment this service once the `contracts/` folder has been added.
+  # 4. Smart Contracts (Local Hardhat Node)
   # ----------------------------------------------------------------------------
-  # contracts:
-  #   build:
-  #     context: ./contracts
-  #     dockerfile: Dockerfile
-  #   container_name: d-vault-contracts
-  #   restart: unless-stopped
-  #   ports:
-  #     - "8545:8545"
-  #   environment:
-  #     - HARDHAT_NETWORK=localhost
-  #   networks:
-  #     - d-vault-network
+  hardhat:
+    build:
+      context: ./blockchain
+      dockerfile: Dockerfile
+    container_name: d-vault-hardhat
+    restart: unless-stopped
+    ports:
+      - "8545:8545"
+    environment:
+      - HARDHAT_NETWORK=localhost
+    networks:
+      - d-vault-network
 
 volumes:
   postgres_data:

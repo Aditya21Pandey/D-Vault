@@ -8,6 +8,7 @@ export interface AuthenticatedUser {
   walletAddress: string;
   did: string | null;
   role: RoleName;
+  email?: string; // present for Google-authenticated users
 }
 
 // =============================================
