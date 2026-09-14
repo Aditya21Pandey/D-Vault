@@ -21,35 +21,74 @@
 
 ---
 
-## Quick Start
+## Monorepo Architecture
 
-### 1. Install dependencies
-```bash
-cd backend
-npm install
-```
+- **[`backend/`](../backend/)**: Node.js & Express REST API built with TypeScript, Prisma ORM, Ethers.js, SIWE, and Google OAuth.
+- **[`frontend/`](../frontend/)**: **(Active)** Modern Web3 UI built with Next.js, featuring wallet connection and Google Sign-In.
+- **[`frontend-web3/`](../frontend-web3/)**: **(Deprecated)** Legacy frontend implementation.
+- **[`security/`](../security/)**: Security audits, secret scanning, and QA scripts.
+- **[`docker-compose.yml`](../docker-compose.yml)**: Multi-container local orchestration (PostgreSQL 16, Backend API, Frontend).
 
-### 2. Set up environment
+---
+
+## Local Development Quickstart
+
+### 1. Configure Environment Variables
+
+**Backend (`backend/.env`):**
 ```bash
 cp .env.example .env
 # Edit .env — at minimum set DATABASE_URL and JWT_SECRET
 ```
+Add Google Auth and Whitelists:
+```env
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+ADMIN_EMAILS=admin@gmail.com,owner@gmail.com
+MANAGER_EMAILS=manager@gmail.com
+```
 
-### 3. Set up database
+**Frontend (`frontend/.env.local`):**
+```env
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+NEXT_PUBLIC_API_URL=http://localhost:5000
+```
+> **Note:** To enable Google Sign-In, obtain a Client ID from the [Google Cloud Console](https://console.cloud.google.com). Add `http://localhost:3000` to the **Authorized JavaScript origins**.
+
+### 2. Start Services (Docker)
 ```bash
-npm run prisma:migrate    # creates all tables
+# In the repository root
+docker compose up --build -d
+```
+
+### 3. Setup Database (Backend)
+```bash
+cd backend
+npm install
+npx prisma migrate dev    # creates all tables and schema
 npm run prisma:seed       # seeds: ADMIN, MANAGER, AUDITOR, USER roles
 ```
 
-### 4. Run in development
+### 4. Run Development Servers
+**Backend:**
 ```bash
+cd backend
 npm run dev
+# Server starts at: http://localhost:5000
+# Health check: http://localhost:5000/health
 ```
-Server starts at: `http://localhost:5000`
-Health check: `http://localhost:5000/health`
 
-### 5. Run tests
+**Frontend:**
 ```bash
+cd ../frontend
+pnpm install
+pnpm dev
+# Frontend starts at: http://localhost:3000
+```
+
+### 5. Run tests (Backend)
+```bash
+cd backend
 npm test
 # → 16 passed, 2 suites
 ```
