@@ -60,6 +60,24 @@ function useAuth() {
   const [error, setError] = useState<string | null>(null)
   const [showModal, setShowModal] = useState(false)
 
+  // ── Restore session from localStorage JWT on mount ────────────────────────
+  useEffect(() => {
+    const stored = localStorage.getItem('dvault_jwt')
+    if (!stored) return
+    try {
+      // Decode JWT payload (base64url, no verification — backend validates each request)
+      const payload = JSON.parse(atob(stored.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+      const { walletAddress, email, role, exp } = payload as { walletAddress?: string; email?: string; role?: string; exp?: number }
+      if (exp && exp * 1000 < Date.now()) { localStorage.removeItem('dvault_jwt'); return } // expired
+      const isGoogle = walletAddress?.startsWith('google:')
+      if (isGoogle) {
+        setAuth({ connected: true, address: walletAddress!, shortAddress: email ?? walletAddress!, email, authMethod: 'google', role: role ?? 'USER' })
+      } else if (walletAddress) {
+        setAuth({ connected: true, address: walletAddress, shortAddress: `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`, authMethod: 'wallet', role: role ?? 'USER' })
+      }
+    } catch { /* invalid token — ignore */ }
+  }, [])
+
   // ── MetaMask wallet connect ────────────────────────────────────────────────
   const connectWallet = useCallback(async () => {
     setError(null)
@@ -75,6 +93,45 @@ function useAuth() {
       const accounts = await eth.request({ method: 'eth_requestAccounts' }) as string[]
       const address = accounts[0]
       const shortAddress = `${address.slice(0, 6)}...${address.slice(-4)}`
+
+      // ── Backend auth: nonce → sign → verify → JWT ──────────────────────────
+      try {
+        const nonceRes = await fetch(`${API_URL}/api/auth/nonce`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ walletAddress: address }),
+        })
+        const nonceJson = await nonceRes.json()
+        // Backend returns { success, data: { message } }
+        const message = nonceJson.data?.message ?? nonceJson.message
+        if (!message) throw new Error('Failed to get nonce from backend')
+        // MetaMask requires hex-encoded message for personal_sign to avoid origin errors
+        const hexMsg = '0x' + Array.from(new TextEncoder().encode(message as string)).map(b => b.toString(16).padStart(2, '0')).join('')
+        const signature = await eth.request({ method: 'personal_sign', params: [hexMsg, address] }) as string
+        const verifyRes = await fetch(`${API_URL}/api/auth/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ walletAddress: address, signature }),
+        })
+        const verifyJson = await verifyRes.json()
+        // Backend returns { success, data: { token, expiresIn } } — no user object
+        const token = verifyJson.data?.token ?? verifyJson.token
+        if (token) {
+          if (typeof window !== 'undefined') localStorage.setItem('dvault_jwt', token)
+          // Decode role from JWT payload (wallet verify doesn't return a user object)
+          let role = 'User'
+          try {
+            const jwtPayload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+            const roleMap: Record<string, string> = { ADMIN: 'Admin', MANAGER: 'Manager', AUDITOR: 'Auditor', USER: 'User' }
+            role = roleMap[jwtPayload.role as string] ?? 'User'
+          } catch { /* fallback to User */ }
+          setAuth({ connected: true, address, shortAddress, authMethod: 'wallet', role })
+          setShowModal(false)
+          return
+        }
+      } catch {
+        // Backend auth failed — still allow wallet with USER role
+      }
       setAuth({ connected: true, address, shortAddress, authMethod: 'wallet', role: 'User' })
       setShowModal(false)
     } catch (err: unknown) {
@@ -619,35 +676,178 @@ function AuditPage() {
   )
 }
 
-function MintPage() {
-  const [step, setStep] = useState(1)
+function MintPage({ address }: { address: string }) {
+  const [step, setStep] = useState<1|2|3|4>(1)
   const steps = ['Recipient', 'Metadata', 'Review', 'Sign']
+  const [walletConnected, setWalletConnected] = useState(false)
+  const [walletAddr, setWalletAddr] = useState('')
+  const [recipient, setRecipient] = useState(address.startsWith('0x') ? address : '')
+  const [assetName, setAssetName] = useState('')
+  const [description, setDescription] = useState('')
+  const [assetType, setAssetType] = useState('document')
+  const [txHash, setTxHash] = useState('')
+  const [tokenId, setTokenId] = useState('')
+  const [mintError, setMintError] = useState<string | null>(null)
+  const [minting, setMinting] = useState(false)
+
+  // ── Connect MetaMask for on-chain signing (separate from Google auth) ────
+  const connectMetaMask = async () => {
+    setMintError(null)
+    try {
+      const eth = (window as { ethereum?: { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> } }).ethereum
+      if (!eth) { setMintError('MetaMask not detected. Please install the MetaMask browser extension.'); return }
+      await eth.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: SEPOLIA_CHAIN_ID }] }).catch(() => {})
+      const accounts = await eth.request({ method: 'eth_requestAccounts' }) as string[]
+      if (accounts[0]) {
+        setWalletAddr(accounts[0])
+        setWalletConnected(true)
+        if (!recipient) setRecipient(accounts[0])
+      }
+    } catch (err: unknown) {
+      setMintError(err instanceof Error ? err.message : 'Failed to connect MetaMask')
+    }
+  }
+
+  const handleSign = async () => {
+    if (!assetName.trim()) { setMintError('Asset name is required.'); return }
+    if (!recipient.trim() || !recipient.startsWith('0x') || recipient.length !== 42) { setMintError('Please enter a valid Ethereum address (0x...) as the recipient.'); return }
+    const jwtToken = typeof window !== 'undefined' ? localStorage.getItem('dvault_jwt') ?? '' : ''
+    if (!jwtToken) { setMintError('You are not authenticated. Please sign out and sign back in to get a fresh session.'); return }
+    if (!walletConnected) { setMintError('Please connect MetaMask first using the banner above.'); return }
+    setMinting(true); setMintError(null)
+    try {
+
+      // Step 1: Upload metadata to IPFS via backend
+      const metaRes = await fetch(`${API_URL}/api/assets/metadata`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(jwtToken ? { Authorization: `Bearer ${jwtToken}` } : {}) },
+        body: JSON.stringify({ name: assetName, description, assetType }),
+      })
+      const metaJson = await metaRes.json()
+      if (!metaRes.ok) throw new Error(metaJson.error?.message ?? metaJson.message ?? 'Metadata upload failed')
+      // Backend returns { success, data: { cid, ipfsUri, metadata } }
+      const ipfsUri = metaJson.data?.ipfsUri ?? metaJson.ipfsUri
+      if (!ipfsUri) throw new Error('Backend did not return an IPFS URI. Check backend logs.')
+
+      // Step 2: Mint via MetaMask → NFTAsset contract
+      const { BrowserProvider, Contract, Interface } = await import('ethers')
+      const { CONTRACT_ADDRESSES: addrs, NFT_ABI } = await import('@/lib/contracts')
+      const eth = (window as { ethereum?: object }).ethereum
+      if (!eth) throw new Error('MetaMask is required to mint. Please connect a wallet first.')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const provider = new BrowserProvider(eth as any)
+      const signer = await provider.getSigner()
+      const nft = new Contract(addrs.nft, NFT_ABI as unknown as object[], signer)
+      const tx = await nft.mint(recipient, ipfsUri)
+      setTxHash(tx.hash)
+      const receipt = await tx.wait()
+
+      // Step 3: Parse tokenId from NFTMinted event
+      const iface = new Interface(NFT_ABI as unknown as object[])
+      let mintedId = ''
+      for (const log of receipt.logs) {
+        try { const p = iface.parseLog(log); if (p?.name === 'NFTMinted') mintedId = p.args.tokenId.toString() } catch { /* skip */ }
+      }
+      setTokenId(mintedId)
+      setStep(4)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Minting failed'
+      setMintError(msg.toLowerCase().includes('reject') || msg.toLowerCase().includes('denied') ? 'You rejected the transaction in MetaMask.' : msg)
+    } finally { setMinting(false) }
+  }
+
   return (
     <div className="page-content">
       <SectionHeading eyebrow="Asset operations / New issuance" title="Mint an asset" action={<span className="gas-note"><Zap size={14} /> Est. gas 0.002 ETH</span>} />
+
+      {/* ── MetaMask connection banner ── */}
+      {!walletConnected ? (
+        <div className="danger-banner" style={{ cursor: 'pointer', marginBottom: 20 }} onClick={connectMetaMask}>
+          <Wallet size={18} />
+          <div>
+            <strong>Connect MetaMask to sign transactions</strong>
+            <span>You are signed in with Google. Connect your MetaMask wallet to sign on-chain mint transactions.</span>
+          </div>
+          <button className="button button-primary button-small" onClick={e => { e.stopPropagation(); connectMetaMask() }}>Connect wallet</button>
+        </div>
+      ) : (
+        <div className="danger-banner" style={{ borderColor: 'var(--accent)', background: 'rgba(139,92,246,0.06)', marginBottom: 20 }}>
+          <Check size={18} style={{ color: 'var(--accent)' }} />
+          <div>
+            <strong>MetaMask connected</strong>
+            <span>Signing with {walletAddr.slice(0, 6)}...{walletAddr.slice(-4)}</span>
+          </div>
+        </div>
+      )}
+
       <div className="mint-layout">
         <div className="mint-main">
           <div className="stepper">{steps.map((item, index) => <div className={`step ${step > index + 1 ? 'done' : ''} ${step === index + 1 ? 'current' : ''}`} key={item}><span>{step > index + 1 ? <Check size={13} /> : index + 1}</span><label>{item}</label></div>)}</div>
           <div className="form-card">
-            {step === 1 && <><p className="eyebrow">Step 01 / Recipient</p><h2>Who should own this asset?</h2><p className="muted-copy">Assets are linked to a DID. The recipient will receive a verifiable ownership credential.</p><label className="field-label">Recipient DID</label><div className="input-wrap"><Fingerprint size={16} /><input defaultValue="did:ethr:0x71C7...9a42" /></div><div className="recipient-check"><BadgeCheck size={17} /><div><strong>Identity resolved</strong><span>Operator / 0x71C7 · Created 08 Mar 2026</span></div></div></>}
-            {step === 2 && <><p className="eyebrow">Step 02 / Metadata</p><h2>Describe the asset</h2><p className="muted-copy">Metadata is pinned to IPFS and its content hash committed on-chain with the mint.</p><label className="field-label">Asset name</label><div className="input-wrap"><input placeholder="e.g. Field Credential / Level 04" /></div><label className="field-label">Collection</label><div className="input-wrap"><input placeholder="Select or create collection" /></div><label className="field-label">Description</label><div className="input-wrap textarea"><textarea placeholder="What does this asset represent?" /></div></>}
-            {step === 3 && <><p className="eyebrow">Step 03 / Review</p><h2>Check the issuance</h2><div className="review-list"><div><span>Recipient</span><Hash>{currentIdentity.did}</Hash></div><div><span>Standard</span><strong>ERC-721</strong></div><div><span>Network fee</span><strong>~ 0.002 ETH <small>($6.42)</small></strong></div><div><span>Metadata</span><ProofPill>Content hash ready</ProofPill></div></div><div className="signature-note"><KeyRound size={18} /><div><strong>Next: sign a transaction</strong><span>This action will cost gas and permanently create the asset. Your wallet will ask for confirmation.</span></div></div></>}
-            {step === 4 && <div className="mint-success"><div className="success-orbit"><BadgeCheck size={34} /></div><p className="eyebrow accent-text">Transaction confirmed</p><h2>Asset is now yours.</h2><p className="muted-copy">Field Credential / Level 04 has been minted and linked to your DID.</p><button className="hash hash-link" onClick={() => openTxInExplorer('0xac11f8e0')}>tx: 0xac11...f8e0 <ArrowUpRight size={11} style={{ display: 'inline' }} /></button><ProofPill>Ownership verified</ProofPill></div>}
+            {mintError && <div className="wallet-error" style={{ marginBottom: 16 }}><X size={13} /> {mintError}</div>}
+
+            {step === 1 && <>
+              <p className="eyebrow">Step 01 / Recipient</p><h2>Who should own this asset?</h2>
+              <p className="muted-copy">Enter the wallet address of the recipient. They will receive the NFT and the verifiable ownership credential.</p>
+              <label className="field-label">Recipient wallet address</label>
+              <div className="input-wrap"><Wallet size={16} /><input value={recipient} onChange={e => setRecipient(e.target.value)} placeholder="0x..." /></div>
+            </>}
+
+            {step === 2 && <>
+              <p className="eyebrow">Step 02 / Metadata</p><h2>Describe the asset</h2>
+              <p className="muted-copy">Metadata is pinned to IPFS and its content hash committed on-chain with the mint.</p>
+              <label className="field-label">Asset name</label>
+              <div className="input-wrap"><input value={assetName} onChange={e => setAssetName(e.target.value)} placeholder="e.g. Field Credential / Level 04" /></div>
+              <label className="field-label">Asset type</label>
+              <div className="input-wrap"><select value={assetType} onChange={e => setAssetType(e.target.value)} style={{ background: 'transparent', border: 'none', color: 'inherit', flex: 1, fontSize: 13 }}><option value="document">Document</option><option value="certificate">Certificate</option><option value="identity">Identity credential</option><option value="access">Access pass</option><option value="equipment">Equipment</option></select></div>
+              <label className="field-label">Description</label>
+              <div className="input-wrap textarea"><textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="What does this asset represent?" /></div>
+            </>}
+
+            {step === 3 && <>
+              <p className="eyebrow">Step 03 / Review</p><h2>Check the issuance</h2>
+              <div className="review-list">
+                <div><span>Recipient</span><Hash>{`${recipient.slice(0, 10)}...${recipient.slice(-6)}`}</Hash></div>
+                <div><span>Asset name</span><strong>{assetName}</strong></div>
+                <div><span>Asset type</span><strong>{assetType}</strong></div>
+                <div><span>Standard</span><strong>ERC-721</strong></div>
+                <div><span>Network</span><strong>Ethereum Sepolia</strong></div>
+                <div><span>Metadata</span><ProofPill>Will be pinned to IPFS</ProofPill></div>
+              </div>
+              <div className="signature-note"><KeyRound size={18} /><div><strong>Next: sign a transaction</strong><span>MetaMask will ask for confirmation. This permanently creates the asset on-chain.</span></div></div>
+            </>}
+
+            {step === 4 && <div className="mint-success">
+              <div className="success-orbit"><BadgeCheck size={34} /></div>
+              <p className="eyebrow accent-text">Transaction confirmed</p>
+              <h2>Asset minted on Sepolia.</h2>
+              <p className="muted-copy">{assetName} has been minted as NFT{tokenId ? ` #${tokenId}` : ''} and linked to the recipient address.</p>
+              {txHash && <button className="hash hash-link" onClick={() => openTxInExplorer(txHash)}>tx: {txHash.slice(0, 10)}...{txHash.slice(-6)} <ArrowUpRight size={11} style={{ display: 'inline' }} /></button>}
+              <ProofPill>Ownership verified on-chain</ProofPill>
+            </div>}
+
             <div className="form-actions">
-              {step > 1 && step < 4 && <button className="button button-outline" onClick={() => setStep(step - 1)}>Back</button>}
-              {step < 4 && <button className="button button-primary" onClick={() => setStep(step + 1)}>{step === 3 ? 'Sign & mint' : 'Continue'} <ArrowUpRight size={15} /></button>}
-              {step === 4 && <button className="button button-primary" onClick={() => setStep(1)}>Mint another asset <Plus size={15} /></button>}
+              {step > 1 && step < 4 && <button className="button button-outline" onClick={() => setStep((step - 1) as 1|2|3|4)}>Back</button>}
+              {step < 3 && <button className="button button-primary" onClick={() => setStep((step + 1) as 1|2|3|4)} disabled={step === 1 && !recipient.trim()}>Continue <ArrowUpRight size={15} /></button>}
+              {step === 3 && <button className="button button-primary" onClick={handleSign} disabled={minting || !walletConnected}>{minting ? <><Loader2 size={15} className="spin" /> Minting…</> : <>Sign &amp; mint <ArrowUpRight size={15} /></>}</button>}
+              {step === 4 && <button className="button button-primary" onClick={() => { setStep(1); setAssetName(''); setDescription(''); setTxHash(''); setTokenId(''); setMintError(null) }}>Mint another <Plus size={15} /></button>}
             </div>
           </div>
         </div>
         <div className="mint-aside">
           <div className="aside-art"><Fingerprint size={42} /><span>DID → NFT</span><small>permanent ownership link</small></div>
-          <div className="gas-card"><div><span className="muted-label">Transaction type</span><strong>On-chain write</strong></div><div><span className="muted-label">Estimated gas</span><strong>0.002 ETH</strong></div><div><span className="muted-label">Confirmation</span><strong>~ 15 seconds</strong></div></div>
+          <div className="gas-card">
+            <div><span className="muted-label">Contract</span><strong>NFTAsset (ERC-721)</strong></div>
+            <div><span className="muted-label">Address</span><button className="hash hash-link" onClick={() => openAddressInExplorer('0x7Ea4666bF8A593bD8b387871f1D57a27313dFfA9')}>0x7Ea4...fA9 <ArrowUpRight size={10} style={{ display: 'inline' }} /></button></div>
+            <div><span className="muted-label">Estimated gas</span><strong>0.002 ETH</strong></div>
+            <div><span className="muted-label">Network</span><strong>Ethereum Sepolia</strong></div>
+          </div>
         </div>
       </div>
     </div>
   )
 }
+
 
 function RolesPage() {
   const [assigned, setAssigned] = useState<string | null>(null)
@@ -908,7 +1108,7 @@ function App() {
     if (effectivePage === 'identity')       return <IdentityPage address={address} />
     if (effectivePage === 'assets')         return <AssetsPage onSelect={setSelectedAsset} />
     if (effectivePage === 'audit')          return <AuditPage />
-    if (effectivePage === 'mint')           return <MintPage />
+    if (effectivePage === 'mint')           return <MintPage address={address} />
     if (effectivePage === 'roles')          return <RolesPage />
     if (effectivePage === 'register-user')  return <RegisterUserPage />
     if (effectivePage === 'register-admin') return <RegisterAdminPage />
